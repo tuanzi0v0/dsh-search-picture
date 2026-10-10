@@ -1,0 +1,5 @@
+# Build artifacts and dev scratch: the installable package is the repository itself,
+# so nothing here belongs in a published tarball or in git.
+.work/
+downloads/
+*.tgz

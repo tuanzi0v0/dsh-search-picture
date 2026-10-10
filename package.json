@@ -1,0 +1,45 @@
+{
+  "name": "dsh-search-picture",
+  "version": "0.4.8",
+  "private": true,
+  "description": "DSH picture search: Bing/Baidu/360/Bilibili/Safebooru sources with Zhihu/Bilibili preference, stage candidates in a preview area, then write only the user-approved ones flat into the system Pictures album",
+  "type": "module",
+  "main": "index.js",
+  "exports": {
+    ".": "./index.js",
+    "./client": "./client.js",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "index.js",
+    "client.js",
+    "src",
+    "cordis.patch.yml",
+    "README.md",
+    "LICENSE"
+  ],
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "platform": "web",
+      "immediately": true,
+      "inject": [
+        "@deepseek-ai/dsh-client-ui-tool",
+        "@deepseek-ai/dsh-client-ui-conversation"
+      ]
+    }
+  },
+  "keywords": [
+    "dsh",
+    "deepseek-harness",
+    "cordis",
+    "plugin",
+    "image",
+    "picture",
+    "search"
+  ],
+  "license": "MIT"
+}
+
