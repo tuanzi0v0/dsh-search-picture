@@ -36,8 +36,9 @@ downloads/                              下载根目录（配置里的 directory
 | 官方素材 | **默认关闭**（`officialSite: true` 可开启）。官网首页按活动批次展示横幅与联动广告，实测**不含用户点名的角色**（拿到的多是活动主视觉，甚至别的角色的立绘）——对「找某个具体角色」这个主要用途，官网素材是噪声 |
 | 相关站点 | **萌娘百科默认开启**（`relatedSites`）：去与主题关联的百科站找图。动漫类的**作品视觉图/立绘**主要靠它——实测某作品词条一次可拿到 8 张位图（含 1856×2618 等大图），且图床裸请求可下。另可选 `biligame`，但它**启用了 WAF**、实测会返回 HTTP 567 拦截页，故默认关闭 |
 | 水印过滤 | 用户要求「不要自动添加水印的图片」。插件没有视觉模型，**无法通用判断一张图有没有水印**；但图库站的水印是产品行为，所以按**域名黑名单**（58pic/699pic/gettyimages…）＋**地址含 `watermark`/`水印` 标记**两条确定性判据排除，结果里会报告排除了几张（`watermarkHosts` 可追加域名） |
+| 授权来源 | **Wikimedia Commons**（默认开启，`commons: false` 关闭）：这是**唯一自带授权信息**的源——每条结果都带 `LicenseShortName`（`CC BY 4.0` / `CC0` / `Public domain`）与 `Artist`，结果清单新增「授权 / 作者」两列，`notes` 会逐张点名。实测搜「Zelenskyy Trump White House meeting」拿到 30 条全部达标（3000×2000，白宫官方摄影，Public domain）。**三个坑**：① 缩略图域名 `thumb.wikimedia.org` 实测被拒（返回 HTML 错误页），**只能走 `upload.wikimedia.org` 原图**，单张 1~5 MB；② 浏览器 UA 会被挡，必须用带工具名的 UA；③ 检索是全文匹配，**会混进年代久远、主题无关的老图**（实测混入 1934 年纳粹明信片），相关性要看预览图判断 |
 | 插画源 | **Safebooru**（`tags` 参数启用）：画师同人插画，能拿到超大原图（实测 850×1328 ~ **5039×7874**、11 MB），无防盗链。但它**只做标签字面匹配**——带空格的自然语言查不到，必须用下划线连接的标签形式（见下方 `tags` 说明），因此中文/自然语言查询不会去查它（避免引入不相关噪声）。**新推出的角色往往还没有标签**（实测多个新角色为 0 条） |
-| 搜索 | 并发查询 **Bing 图片**、**百度图片**、**360 图片**、**哔哩哔哩图文** 四个免 key 图源，按图片地址去重合并 |
+| 搜索 | 并发查询 **Bing 图片**、**百度图片**、**360 图片**、**哔哩哔哩图文** 四个免 key 图源，按图片地址去重合并；**Wikimedia Commons** 作为独立通路额外查询（不进这四路并发，理由见上） |
 | 来源偏好 | **知乎与哔哩哔哩优先**（用户指定）。按**站点**判定而非引擎——百度和必应都会索引知乎/B 站的图，用户在意的是图最终来自哪个站。偏好**只在质量相当时**起并列作用，绝不越级（历史教训：曾让官网升到最高档，结果横幅挤掉了全部插画） |
 | 可直贴标记 | `hotlinkFriendly` 标出「图床无防盗链、直链可安全嵌入回复显示」的图（`zhimg.com` / `hdslb.com` / `safebooru.org`）。回复正文只认 `http(s)` 图片源，本地路径会被渲染成文字占位符 |
 | 清晰度 | **保底 720p**（默认门槛 921600 px² = 1280×720），1080p 以上自然排前；下载后按**实际解码尺寸**三重校验：像素面积、长边 ≥1000、长宽比 ≤2.6，不达标直接淘汰并记录原因 |
@@ -191,6 +192,7 @@ dsh plugin --profile desktop add ./dsh-search-picture-<version>.tgz
     relatedSites: [moegirl]   # 相关站点（百科类）；[moegirl, biligame] 可加站点，[] 整体关掉
     watermarkHosts: []        # 额外要按「水印风险」排除的域名（内置了一份图库站黑名单）
     safebooru: true           # 是否启用 Safebooru 插画源（仅在给了 tags 时才会真的查询）
+    commons: true             # 是否启用 Wikimedia Commons 源（唯一自带授权信息的源）
     minPixels: 921600         # 清晰度门槛（像素面积）；921600 = 1280x720，即保底 720p
     minLongEdge: 1000         # 长边下限；挡掉「面积够但很窄」的裁切条
     maxAspectRatio: 2.6       # 长宽比上限；挡掉专栏/网页里的超宽横幅与拼图条
@@ -201,7 +203,7 @@ dsh plugin --profile desktop add ./dsh-search-picture-<version>.tgz
     searchTimeoutMs: 20000    # 图源搜索超时
 ```
 
-上面的键与代码里的 `Config` **一一对应**（共 17 个）。`album` / `albumName` / `autoCleanPreview` / `relatedSites` / `watermarkHosts` 是后加的，旧版配置文件里没有它们也能正常跑（有默认值兜底）。
+上面的键与代码里的 `Config` **一一对应**（共 18 个）。`album` / `albumName` / `autoCleanPreview` / `relatedSites` / `watermarkHosts` / `commons` 是后加的，旧版配置文件里没有它们也能正常跑（有默认值兜底）。
 
 ### 怎么用「相关站点」和「水印过滤」
 
@@ -210,6 +212,7 @@ dsh plugin --profile desktop add ./dsh-search-picture-<version>.tgz
 | 图源 | 用什么检索 | 什么时候生效 |
 |---|---|---|
 | Safebooru 插画 | **`tags` 参数**（英文 booru 标签） | 只有你给了 `tags` 才查它 |
+| **Wikimedia Commons** | **`query` 查询词**（中英文皆可） | `commons` 非空时**每轮都会查** |
 | **相关站点（萌娘百科）** | **`query` 查询词**（中文即可） | `relatedSites` 非空时**每轮都会查** |
 
 所以「动漫去萌娘百科」不需要你做任何额外操作，直接说需求就行：

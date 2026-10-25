@@ -392,6 +392,10 @@ export async function downloadCandidates(candidates, options) {
         pageUrl: candidate.pageUrl,
         title: candidate.title,
         engine: candidate.engine,
+        // 授权与作者（Commons 提供）：必须原样带到落盘结果，否则上层清单里丢失，
+        // 用户只能回站点自己翻——那正是商业频道最容易踩版权坑的地方。
+        license: candidate.license,
+        artist: candidate.artist,
         // 图床无防盗链 → 这条直链可以直接嵌进回复正文显示（详见该函数的说明）。
         hotlinkFriendly: isHotlinkFriendly(image.sourceUrl),
       });

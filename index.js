@@ -97,6 +97,14 @@ export const Config = z.object({
    * 查询恒为 0 结果，因此只在调用方给了 `tags` 参数时才查询。
    */
   safebooru: z.boolean().default(true),
+  /**
+   * 是否启用 Wikimedia Commons 源（`false` 关闭）。
+   *
+   * 这是**唯一自带授权信息**的源（每条结果带 `LicenseShortName` + `Artist`），
+   * 商业频道做配图时优先看它。代价是只用原图（单张 1~5 MB）且检索为全文匹配，
+   * 可能混入主题无关的老图，需要看预览图判断相关性。
+   */
+  commons: z.boolean().default(true),
 });
 
 /** 输出里单张图片的形状（与 `runSearch` 的返回字段一一对应）。 */
@@ -117,6 +125,13 @@ const IMAGE_PROPERTIES = {
    * 因此这个标记决定「这张图能不能真的贴给用户看」。
    */
   hotlinkFriendly: { type: 'boolean', required: true },
+  /**
+   * 授权协议原文（目前仅 Wikimedia Commons 源提供，如 `CC BY 4.0` / `CC0` / `Public domain`）。
+   * 商业频道靠它判断能否安全商用，因此原样透出、不做归一化改写。
+   */
+  license: { type: 'string' },
+  /** 作者/版权方（随 `license` 一起由 Commons 提供），CC BY 类署名时必用。 */
+  artist: { type: 'string' },
   attachment: {
     type: 'object',
     additionalProperties: false,

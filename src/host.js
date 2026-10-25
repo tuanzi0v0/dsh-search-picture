@@ -253,6 +253,29 @@ async function searchPicture(ctx, config, args, exec) {
     };
   })();
 
+  /**
+   * Wikimedia Commons 源：**CC/公有领域授权的图片来源**。
+   *
+   * 商业频道（本插件的首要使用场景）最怕的是「图能下但授权说不清」，Commons 正好
+   * 补上这一块：每条结果都带 `LicenseShortName` 与 `Artist`。它不在 {@link ENGINES}
+   * 里，是像 Safebooru 一样的独立通路——理由有两条：
+   *   - 它**只用原图**（缩略图域名实测被拒），单张 1~5 MB，默认并进四路会显著拖慢；
+   *   - 它的检索是全文匹配，混进老图与无关图是常态，召回量大，不需要再和别的源抢额度。
+   *
+   * 由 `config.commons === false` 关闭。
+   *
+   * @returns `{ candidates, error?, requested }`。
+   */
+  const commons = await (async () => {
+    if (config.commons === false) return { candidates: [], requested: false };
+    const result = await runEngine('commons', query, { signal, page, timeoutMs: config.searchTimeoutMs });
+    return {
+      candidates: result.candidates,
+      requested: true,
+      ...(result.error === undefined ? {} : { error: result.error }),
+    };
+  })();
+
   // 候选上限按源区分：批量源（Safebooru 单页 100 条、官网首页 21 条）收紧到 2 倍目标张数，
   // 其余源放宽——它们本身就是「按关键词」的结果，截太狠会丢掉好图。
   const bulkLimit = Math.max(12, count * 2);
@@ -261,6 +284,7 @@ async function searchPicture(ctx, config, args, exec) {
     { engine: 'official', candidates: official.candidates },
     { engine: 'safebooru', candidates: safebooru.candidates },
     { engine: 'related', candidates: related.candidates },
+    { engine: 'commons', candidates: commons.candidates },
   ], {
     maxPerEngine: (engine) => (engine === 'safebooru' || engine === 'official' ? bulkLimit : count * 8),
   });
@@ -294,6 +318,14 @@ async function searchPicture(ctx, config, args, exec) {
         label: engineLabel('related'),
         found: related.candidates.length,
         ...(related.errors.length > 0 ? { error: related.errors.join('; ') } : {}),
+      }]
+      : []),
+    ...(commons.requested
+      ? [{
+        engine: 'commons',
+        label: engineLabel('commons'),
+        found: commons.candidates.length,
+        ...(commons.error === undefined ? {} : { error: commons.error }),
       }]
       : []),
   ];
@@ -345,6 +377,8 @@ async function searchPicture(ctx, config, args, exec) {
       pageUrl: file.pageUrl,
       title: file.title,
       engine: file.engine,
+      license: file.license,
+      artist: file.artist,
       hotlinkFriendly: file.hotlinkFriendly,
       attachment: undefined,
       attachmentError: undefined,
@@ -410,6 +444,17 @@ async function searchPicture(ctx, config, args, exec) {
   if (watermarkDropped > 0) {
     notes.push(`已按「不带水印」要求排除 ${String(watermarkDropped)} 张候选（已知图库站自动加水印，或地址带水印标记）。`);
   }
+  // Commons 的关键价值是**授权可追溯**：把每张的授权与作者点名出来，
+  // 商业频道据此判断商用是否安全；同时提醒「检索是全文匹配、内容相关性要看图」。
+  const commonsImages = images.filter((image) => image.engine === 'commons');
+  if (commonsImages.length > 0) {
+    const listed = commonsImages
+      .map((image) => `${image.fileName}（${image.license ?? '授权未标注'}${image.artist === undefined ? '' : `，${image.artist}`}）`)
+      .join('；');
+    notes.push(`其中 ${String(commonsImages.length)} 张来自 Wikimedia Commons，授权已核实：${listed}。CC BY / CC BY-SA 类需在成片或简介中署名作者并注明协议，CC0 与 Public domain 无需署名；使用时请以页面上标注的协议为准。注意它按全文检索，可能混入与主题无关的图，请以预览图判断相关性。`);
+  } else if (commons.requested && commons.error !== undefined) {
+    notes.push(`Wikimedia Commons 本轮不可用：${commons.error}。`);
+  }
 
   if (images.length > 0) {
     // 预览清单：既是给人看的说明，也是 save_pictures 的依据。
@@ -460,13 +505,16 @@ function buildManifest(query, batch, images, albumDir) {
     `- 确认后会写入相册：\`${albumDir}\``,
     `- 数量：${String(images.length)}`,
     '',
-    '| # | 文件 | 分辨率 | 大小 | 来源 | 图片直链 | 出处 |',
-    '|---|---|---|---|---|---|---|',
+    '| # | 文件 | 分辨率 | 大小 | 来源 | 授权 | 作者 | 图片直链 | 出处 |',
+    '|---|---|---|---|---|---|---|---|---|',
   ];
   images.forEach((image, index) => {
     const size = image.width === undefined || image.height === undefined ? '?' : `${String(image.width)}x${String(image.height)}`;
+    // 只有 Commons 这些源会带授权；其余源显示「未标注」，如实反映而非留空让人误以为已核实。
+    const license = image.license ?? (image.engine === 'commons' ? '未标注' : '-');
+    const artist = image.artist ?? '-';
     lines.push(
-      `| ${String(index + 1)} | \`${image.fileName}\` | ${size} | ${formatBytes(image.bytes)} | ${image.engine} | ${image.sourceUrl} | ${image.pageUrl ?? '-'} |`,
+      `| ${String(index + 1)} | \`${image.fileName}\` | ${size} | ${formatBytes(image.bytes)} | ${image.engine} | ${license} | ${artist} | ${image.sourceUrl} | ${image.pageUrl ?? '-'} |`,
     );
   });
   lines.push('', '满意哪些就保留哪些；确认后其余候选会被删除。');

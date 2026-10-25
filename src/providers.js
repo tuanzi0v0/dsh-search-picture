@@ -33,6 +33,97 @@ import { decodeEntities, httpGet, normalizeUrl, BROWSER_UA } from './util.js';
 export const ENGINES = ['bing', 'baidu', 'so360', 'bilibili'];
 
 /**
+ * Wikimedia Commons 的专用 User-Agent。
+ *
+ * **不能沿用 {@link BROWSER_UA}**：Wikimedia 的图片服务器按 UA 判定客户端类型，
+ * 实测浏览器 UA 反而会被拦，返回 HTML 错误页而不是图片字节。
+ * 官方要求 (https://meta.wikimedia.org/wiki/User-Agent_policy) UA 里带工具名与联系方式。
+ */
+const COMMONS_UA = 'dsh-search-picture/0.4.8 (DSH picture search plugin; +https://github.com/tuanzi0v0/dsh-search-picture)';
+
+/** Commons 文件名前缀里常见的行政噪音，去掉后标题更适合显示。 */
+const COMMONS_TITLE_PREFIXES = [
+  /^File:/i,
+  /^[0-9]+\s*[-–]\s*/,
+];
+
+/**
+ * 解析 Wikimedia Commons `action=query&generator=search` 的响应。
+ *
+ * 与其余引擎的本质差别：Commons 的每条结果都带 **`extmetadata`**，里面有
+ * `LicenseShortName`（如 `CC BY 4.0` / `Public domain` / `CC0`）与 `Artist`。
+ * 这正是商业频道最需要的信息，因此**原样带到候选上**，供上层写进清单与笔记——
+ * 丢了它，用户就得自己回站点翻授权，等于没加这个源。
+ *
+ * 三个必须知道的事实（实测）：
+ *   1. `iiurlwidth` 返回的 `thumburl` 走 `thumb.wikimedia.org`，**实测被拒**（HTML 错误页）；
+ *      而 `upload.wikimedia.org` 的原图直链可正常下载。所以这里**只用原图 `url`**，
+ *      不把缩略图当作主图（单张 1~5 MB，靠上层 `maxBytes` 兜住）。
+ *   2. 搜索是全文匹配，**会混进年代久远、主题无关的老图片**（实测搜「乌克兰前线」混进
+ *      1934 年纳粹明信片）。这类图靠宽高与上层清晰度门槛淘汰；这里不过滤宽高以外的内容，
+ *      以免误杀——相关性最终由模型看预览图判断。
+ *   3. 结果里常见的 `File:` 前缀与编号要从标题里剥掉，否则预览清单很难读。
+ *
+ * @param text API 响应文本。
+ * @returns 候选列表（带 `license` / `artist`）。
+ */
+export function parseCommonsJson(text) {
+  if (typeof text !== 'string' || text.trim() === '') return [];
+  let json;
+  try {
+    json = JSON.parse(text);
+  } catch {
+    return [];
+  }
+  const pages = json?.query?.pages;
+  if (pages === null || typeof pages !== 'object') return [];
+  const candidates = [];
+  // pages 是对象（按 pageid 索引），顺序不可靠 → 按 index 排回来保证稳定。
+  const rows = Object.values(pages)
+    .filter((page) => page !== null && typeof page === 'object')
+    .sort((a, b) => Number(a.index ?? 0) - Number(b.index ?? 0));
+  for (const row of rows) {
+    const info = Array.isArray(row.imageinfo) ? row.imageinfo[0] : undefined;
+    if (info === undefined || typeof info !== 'object') continue;
+    const imageUrl = normalizeUrl(info.url);
+    if (imageUrl === undefined) continue;
+    const width = Number(info.width);
+    const height = Number(info.height);
+    // 矢量图与动图不适合作视频底图：只收位图。
+    if (typeof info.mime === 'string' && !info.mime.startsWith('image/')) continue;
+    if (typeof info.mime === 'string' && /svg|gif|tiff|webp/.test(info.mime)) continue;
+    const meta = info.extmetadata ?? {};
+    const pick = (key) => {
+      const raw = meta[key]?.value;
+      if (raw === undefined || raw === null) return undefined;
+      // extmetadata 的值是 HTML 片段（可能是链接），去标签留文本。
+      const plain = String(raw).replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
+      return plain === '' ? undefined : plain;
+    };
+    let title = pick('ObjectName') ?? String(row.title ?? '');
+    for (const prefix of COMMONS_TITLE_PREFIXES) title = title.replace(prefix, '');
+    // 标题里偶尔还有 .jpg 后缀，去掉。
+    title = title.replace(/\.(jpe?g|png|webp)$/i, '').trim();
+    // 描述页地址：拿不到 `descriptionurl` 时用文件名拼一个合法地址。
+    const pageUrl = normalizeUrl(info.descriptionurl)
+      ?? `https://commons.wikimedia.org/wiki/${encodeURIComponent(String(row.title ?? ''))}`;
+    const artist = pick('Artist');
+    candidates.push({
+      engine: 'commons',
+      imageUrl,
+      pageUrl,
+      title: title === '' ? undefined : title.slice(0, 120),
+      width: Number.isFinite(width) && width > 0 ? width : undefined,
+      height: Number.isFinite(height) && height > 0 ? height : undefined,
+      // 授权与作者：商业频道选图的第一判据，不能丢。
+      license: pick('LicenseShortName'),
+      artist: artist === undefined ? undefined : artist.slice(0, 80),
+    });
+  }
+  return candidates;
+}
+
+/**
  * 百度 `objURL` 的字符置换对照表：**编码字符 → 明文字符**。
  *
  * 表是双射（`a-z0-9` 之间的一个置换），因此表外字符（大写字母、`$`、`&`、`_` 等）
@@ -435,6 +526,36 @@ const ENGINE_SPECS = {
       };
     },
   },
+  commons: {
+    label: 'Wikimedia Commons（CC 授权）',
+    // 只在 `query` 是自然语言/关键词时可用；检索范围限定 **File 命名空间（6）**，
+    // 否则会混进词条与分类页。`iiprop` 必须带 `extmetadata`——授权信息全在那里。
+    request(query, page) {
+      const offset = page * 30;
+      const params = new URLSearchParams({
+        action: 'query',
+        format: 'json',
+        formatversion: '2',
+        generator: 'search',
+        gsrsearch: `${query} filetype:bitmap`,
+        gsrnamespace: '6',
+        gsrlimit: '30',
+        gsroffset: String(offset),
+        prop: 'imageinfo',
+        // 只取原图：缩略图域名实测被拒（见 parseCommonsJson 的说明）。
+        iiprop: 'url|size|extmetadata|mime',
+      });
+      return {
+        url: `https://commons.wikimedia.org/w/api.php?${params.toString()}`,
+        headers: {
+          accept: 'application/json',
+          // 专用 UA：浏览器 UA 会被图片服务器当成滥用请求。
+          'user-agent': COMMONS_UA,
+        },
+        parse: (body) => parseCommonsJson(body),
+      };
+    },
+  },
   bilibili: {
     label: '哔哩哔哩图文',
     // 站内没有图片搜索。**只取专栏正文配图 / 图文图片集**：视频封面是 UP 主给视频做的
@@ -538,5 +659,6 @@ export function engineLabel(engine) {
   if (engine === 'official') return '官方网站';
   if (engine === 'safebooru') return 'Safebooru 插画';
   if (engine === 'related') return '相关站点（百科）';
+  if (engine === 'commons') return 'Wikimedia Commons（CC 授权）';
   return ENGINE_SPECS[engine]?.label ?? engine;
 }
