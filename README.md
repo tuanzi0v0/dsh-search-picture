@@ -132,23 +132,25 @@ downloads/                              下载根目录（配置里的 directory
 
 ## 安装
 
-**给使用者：一键安装（推荐）**
+**给使用者：从 GitHub 安装（推荐）**
 
-从 [Releases](https://github.com/tuanzi0v0/dsh-search-picture/releases) 页面下载 `dsh-search-picture-<版本>.tgz`，或用它的固定直链（**`latest` 永远指向最新版**）：
+直接指向仓库（需要安装机器上有 `git`，DSH 会先用 `git ls-remote` 检查可达性）：
 
 ```
-plugin_manager  action: install_bundle  target: https://github.com/tuanzi0v0/dsh-search-picture/releases/latest/download/dsh-search-picture-0.4.9.tgz
+plugin_manager  action: install_bundle  target: https://github.com/tuanzi0v0/dsh-search-picture
 ```
 
-也可以直接指向仓库（需要安装机器上有 `git`，DSH 会先用 `git ls-remote` 检查可达性）：
+> ⚠️ **不要用 `releases/latest/download/...tgz` 那种直链**：本仓库目前**没有发布任何 GitHub Release**，
+> 这类链接会返回 404。等真发布 Release 之后，直链必须写成**实际资产的文件名**
+> （形如 `.../releases/latest/download/<文件名>.tgz`）——`latest` 只是把「版本号」这段
+> 重定向到最新 tag，它**不会**替你补上文件名，所以链接里必须出现具体文件名。
+> 这也正是 `test/selftest-readme.mjs` 用 `/\d+\.\d+\.\d+\.tgz/` 断言「README 不得写死版本号」的原因。
 
 ```
 plugin_manager  action: install_bundle  target: https://github.com/tuanzi0v0/dsh-search-picture
 ```
 
 安装后 **重启 DSH** 生效（Host 半的 JS 模块只在启动时加载）。Client 半由 `/plugins/<包名>/client.js` 动态提供，不需要重建前端。
-
-> 为什么推荐 tarball：DSH 的插件管理器对 **tarball 形式跳过 GitHub 可达性检查**，也不需要使用者本机装 git，链路更短。
 
 **给开发者：从本地目录安装**
 
