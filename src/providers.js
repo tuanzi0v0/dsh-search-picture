@@ -38,8 +38,10 @@ export const ENGINES = ['bing', 'baidu', 'so360', 'bilibili'];
  * **不能沿用 {@link BROWSER_UA}**：Wikimedia 的图片服务器按 UA 判定客户端类型，
  * 实测浏览器 UA 反而会被拦，返回 HTML 错误页而不是图片字节。
  * 官方要求 (https://meta.wikimedia.org/wiki/User-Agent_policy) UA 里带工具名与联系方式。
+ *
+ * 刻意**不写死版本号**：写死在每次升版本后都会与现实不符，而这种偏差没人会注意。
  */
-const COMMONS_UA = 'dsh-search-picture/0.4.8 (DSH picture search plugin; +https://github.com/tuanzi0v0/dsh-search-picture)';
+const COMMONS_UA = 'dsh-search-picture (DSH picture search plugin; +https://github.com/tuanzi0v0/dsh-search-picture)';
 
 /** Commons 文件名前缀里常见的行政噪音，去掉后标题更适合显示。 */
 const COMMONS_TITLE_PREFIXES = [
